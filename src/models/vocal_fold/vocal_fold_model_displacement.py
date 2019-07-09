@@ -2,22 +2,23 @@
 import pdb
 
 
-def vdp_coupled(Z, t, alpha, beta, delta):
+def vdp_coupled(t, Z, alpha, beta, delta):
     '''
-    Coupled van der Pol oscillator.
-    Second order, nonlinear, constant coefficients, inhomogeneous
+    Coupled van der Pol oscillator of the explicit form
+        dZ = f(Z).
+    Second order, nonlinear, constant coefficients, inhomogeneous.
 
     Parameters
     ----------
     t: time
-    Z: variables [u1(t), u2(t), v1(t), v2(t)]
+    Z: state variables [u1(t), u2(t), v1(t), v2(t)], u right, v left.
     alpha: force related parameter
     beta: system related parameter
     delta: asymmetry parameter
 
     Returns
     -------
-    dZdt: system derivative [du1, du2, dv1, dv2]
+    dZ: system derivative [du1, du2, dv1, dv2]
     '''
     du1 = Z[1]
 
@@ -29,14 +30,14 @@ def vdp_coupled(Z, t, alpha, beta, delta):
     dv2 = -beta * (1 + Z[2] ** 2) * Z[3] - (1 + delta / 2) * Z[2] +\
         alpha * (Z[1] + Z[3])
 
-    dZdt = [du1, du2, dv1, dv2]
-    return dZdt
+    dZ = [du1, du2, dv1, dv2]
+    return dZ
 
 
-def vdp_jacobian(Z, t, alpha, beta, delta):
+def vdp_jacobian(t, Z, alpha, beta, delta):
     '''
-    Jacobian of the above system.
-    J[i, j] = df[i] / dZ[j]
+    Jacobian of the above system of the form
+        J[i, j] = df[i] / dZ[j].
     '''
     J = [
         [0, 1, 0, 0],

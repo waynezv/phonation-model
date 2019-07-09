@@ -1,34 +1,115 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import pdb
 
 
-def adjoint_model(t, M, dM, alpha, beta, delta, X, dX, R):
+def adjoint_model(alpha, beta, delta, X, dX, R, fs):
     '''
-    Adjoint model for vocal fold model.
+    Adjoint model for the 1-d vocal fold oscillation model.
     Used to solve derivatives of left/right vocal fold displacements
         w.r.t. model parameters (alpha, beta, delta).
 
     Parameters
     ----------
-    t: time
-    M: state variables [L, dL, E, dE]
-    dM: derivative of state variables [dL, ddL, dE, ddE]
-    alpha: glottal pressure coupling parameter
-    beta: mass, elastic, damping parameter
-    delta: asymmetry parameter
-    X: vocal fold displacements [x_l, x_r]
-    dX: vocal fold velocity [dx_l, dx_r]
-    R: extra terms required
+    alpha: float
+        Glottal pressure coupling parameter.
+    beta: float
+        Mass, elastic, damping parameter.
+    delta: float
+        Asymmetry parameter.
+    X: List[float]
+        Vocal fold displacements [x_r, x_l].
+    dX: List[fliat]
+        Vocal fold velocity [dx_r, dx_l].
+    R: List[float]
+        Difference between predicted and real volume velocity flows.
+    fs: int
+        Sample rate.
 
     Returns
     -------
-    res: numpy.array
-        Residual vector.
+    residual: function
+        Defines the adjoint model.
+    jac: function
+        Jacobian of the adjoint model.
     '''
-    res_1 = dM[1] + (2 * beta * X[1] * dX[1] + 1 - 0.5 * delta) * M[0] + R
 
-    res_2 = dM[3] + (2 * beta * X[0] * dX[0] + 1 + 0.5 * delta) * M[2] + R
+    def residual(t, M, dM):
+        '''
+        Defines the implicit problem, which should be of the form
+            0 <-- res = F(t, M, dM).
 
-    res_3 = beta * (M[2] * (1 + X[0]) ** 2 - M[0] * (1 + X[1]) ** 2)
-    return np.array([res_1, res_2, res_3])
+        Parameters
+        ----------
+        t: float
+            Time.
+        M: List[float]
+            State variables [L, dL, E, dE].
+        dM: List[float]
+            Derivative of state variables [dL, ddL, dE, ddE].
+
+        Returns
+        -------
+        res: np.array[float], shape (len(M),)
+            Residual vector.
+        '''
+        # BUG: t--sample idx correspondance
+        idx = int(round(t * fs))  # t(s) --> idx(#sample)
+        if idx == 0:
+            idx = 1
+        x = X[idx - 1]
+        dx = dX[idx - 1]
+        r = R[idx - 1]
+
+        res_1 = dM[1] + (2 * beta * x[0] * dx[0] + 1 - 0.5 * delta) * M[0] + r
+
+        res_2 = dM[3] + (2 * beta * x[1] * dx[1] + 1 + 0.5 * delta) * M[2] + r
+
+        # res_3 = beta * (M[2] * (1 + x[1]) ** 2 - M[0] * (1 + x[0]) ** 2)
+        res_3 = beta * M[0] * (1 + x[0] ** 2) - alpha * (M[0] + M[2])
+
+        res_4 = beta * M[2] * (1 + x[1] ** 2) - alpha * (M[0] + M[2])
+
+        return np.array([res_1, res_2, res_3, res_4])
+
+    def jac(c, t, M, Md):
+        '''
+        Defines the Jacobian, which should be of the form
+            J = dF/dM + c*dF/d(dM).
+
+        Parameters
+        ----------
+        c: float
+            Constant.
+        t: float
+            Time.
+        M: List[float]
+            State variables [L, dL, E, dE].
+        dM: List[float]
+            Derivative of state variables [dL, ddL, dE, ddE].
+
+        Returns
+        -------
+        jacobian: np.array[float], shape (len(M), len(M))
+            Jacobian matrix.
+        '''
+        idx = int(round(t * fs))
+        if idx == 0:
+            idx = 1
+        x = X[idx - 1]
+        dx = dX[idx - 1]
+
+        jacobian = np.zeros((len(M), len(M)))
+        jacobian[0, 0] = 2 * beta * x[0] * dx[0] + 1 - 0.5 * delta
+        jacobian[0, 1] = c
+        jacobian[1, 2] = 2 * beta * x[1] * dx[1] + 1 + 0.5 * delta
+        jacobian[1, 3] = c
+        jacobian[2, 0] = beta * (1 + x[0] ** 2) - alpha
+        jacobian[2, 2] = -alpha
+        jacobian[3, 0] = -alpha
+        jacobian[3, 2] = beta * (1 + x[1] ** 2) - alpha
+
+        return jacobian
+
+    return residual, jac
