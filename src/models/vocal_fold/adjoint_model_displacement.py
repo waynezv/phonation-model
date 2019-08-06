@@ -64,14 +64,14 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
 
         res_1 = dM[1] + (2 * beta * x[0] * dx[0] + 1 - 0.5 * delta) * M[0] + r
 
-        res_2 = dM[3] + (2 * beta * x[1] * dx[1] + 1 + 0.5 * delta) * M[2] + r
+        res_2 = beta * M[0] * (1 + x[0] ** 2) - alpha * (M[0] + M[2])
 
-        # res_3 = beta * (M[2] * (1 + x[1]) ** 2 - M[0] * (1 + x[0]) ** 2)
-        res_3 = beta * M[0] * (1 + x[0] ** 2) - alpha * (M[0] + M[2])
+        res_3 = dM[3] + (2 * beta * x[1] * dx[1] + 1 + 0.5 * delta) * M[2] + r
 
         res_4 = beta * M[2] * (1 + x[1] ** 2) - alpha * (M[0] + M[2])
 
-        return np.array([res_1, res_2, res_3, res_4])
+        res = np.array([res_1, res_2, res_3, res_4])
+        return res
 
     def jac(c, t, M, Md):
         '''
@@ -101,12 +101,25 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         dx = dX[idx - 1]
 
         jacobian = np.zeros((len(M), len(M)))
+
+        # jacobian[0, 0] = 2 * beta * x[0] * dx[0] + 1 - 0.5 * delta
+        # jacobian[0, 1] = c
+        # jacobian[1, 2] = 2 * beta * x[1] * dx[1] + 1 + 0.5 * delta
+        # jacobian[1, 3] = c
+        # jacobian[2, 0] = beta * (1 + x[0] ** 2) - alpha
+        # jacobian[2, 2] = -alpha
+        # jacobian[3, 0] = -alpha
+        # jacobian[3, 2] = beta * (1 + x[1] ** 2) - alpha
+
         jacobian[0, 0] = 2 * beta * x[0] * dx[0] + 1 - 0.5 * delta
         jacobian[0, 1] = c
-        jacobian[1, 2] = 2 * beta * x[1] * dx[1] + 1 + 0.5 * delta
-        jacobian[1, 3] = c
-        jacobian[2, 0] = beta * (1 + x[0] ** 2) - alpha
-        jacobian[2, 2] = -alpha
+
+        jacobian[1, 0] = beta * (1 + x[0] ** 2) - alpha
+        jacobian[1, 2] = -alpha
+
+        jacobian[2, 2] = 2 * beta * x[1] * dx[1] + 1 + 0.5 * delta
+        jacobian[2, 3] = c
+
         jacobian[3, 0] = -alpha
         jacobian[3, 2] = beta * (1 + x[1] ** 2) - alpha
 

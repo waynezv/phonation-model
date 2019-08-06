@@ -3,7 +3,7 @@
     "_comment": "Log",
     "verbose": false,
     "log_dir": "./outputs/vocal_fold_model_displacement_params_estimate/logs/",
-    "log_file": "run_0708_",
+    "log_file": "run_0720_",
 
     "log": {
         "version": 1,
@@ -28,7 +28,7 @@
                 "class": "logging.handlers.RotatingFileHandler",
                 "level": "DEBUG",
                 "formatter": "custom",
-                "filename": "./outputs/vocal_fold_model_displacement_params_estimate/logs/run_0708_",
+                "filename": "./outputs/vocal_fold_model_displacement_params_estimate/logs/run_0720_",
                 "maxBytes": 10485760,
                 "backupCount": 20,
                 "encoding": "utf8"
