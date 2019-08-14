@@ -7,11 +7,12 @@ Scheme (IPCS).
                                  div(u) = 0
 """
 
+import numpy as np
+import sympy
+from matplotlib import pyplot as plt
+from tqdm import tqdm
 import fenics as F
 import mshr
-import numpy as np
-from matplotlib import pyplot as plt
-import sympy
 import pdb
 
 
@@ -35,11 +36,40 @@ def UnitHyperCube(divisions):
     return mesh
 
 
+def error_function(u_e, u, norm='L2'):
+    '''
+    Compute the error between estimated solution u and exact solution u_e
+    in the specified norm.
+    '''
+    # Get function space
+    V = u.function_space()
+
+    if norm == 'L2':  # L2 norm
+        # Explicit computation of L2 norm
+        # E = ((u_e - u) ** 2) * F.dx
+        # error = np.sqrt(np.abs(F.assemble(E)))
+
+        # Implicit interpolation of u_e to higher-order elements.
+        # u will also be interpolated to the space Ve before integration
+        error = F.errornorm(u_e, u, norm_type='L2', degree_rise=3)
+
+    elif norm == 'H10':  # H^1_0 seminorm
+        error = F.errornorm(u_e, u, norm_type='H10', degree_rise=3)
+
+    elif norm == 'max':  # max/infinity norm
+        u_e_ = F.interpolate(u_e, V)
+        error = np.abs(
+            np.array(u_e_.vector()) - np.array(u.vector())
+        ).max()
+
+    return error
+
+
 def pde_solver(f, u_D, u_I, c,
                f_boundary, divisions,
                T, dt, num_steps,
                initial_method='project', degree=1,
-               g=None):
+               u_e=None):
     '''
     Solve
 
@@ -78,12 +108,83 @@ def pde_solver(f, u_D, u_I, c,
         Can be either 'project' or 'interpolate'.
     degree: int
         Degree of the (Lagrange) polynomial element.
-    g: FEniCS.Expression
+    u_e: FEniCS.Expression
         Exact solution.
 
     Returns
     -------
     '''
+    def _make_variational_problem(V):
+        '''
+        Formulate the variational problem a(u, v) = L(v).
+
+        Parameters
+        ----------
+        V: FEniCS.FunctionSpace
+
+        Returns
+        -------
+        a, L: FEniCS.Expression
+            Variational forms.
+        '''
+        # Define trial and test functions
+        u = F.TrialFunction(V)
+        v = F.TestFunction(V)
+
+        # Define variational problem
+        a = F.dot(u, v) * F.dx +\
+            (DT ** 2) * (C ** 2) * F.dot(F.grad(u), F.grad(v)) * F.dx
+        L = ((DT ** 2) * f + 2 * u_nm1 - u_nm2) * v * F.dx
+        return a, L
+
+    def _assembly(V):
+        '''
+        Assemble the matrices used in the linear system Au = b.
+        Alternative representation of the variational form.
+        Pre-calculate to speed up.
+        '''
+        # Define trial and test functions
+        u = F.TrialFunction(V)
+        v = F.TestFunction(V)
+
+        # Assemble
+        a_M = F.dot(u, v) * F.dx
+        a_K = F.dot(F.grad(u), F.grad(v)) * F.dx
+
+        M = F.assemble(a_M)
+        K = F.assemble(a_K)
+
+        A = M + (DT ** 2) * (C ** 2) * K
+        return M, K, A
+
+    def _residual(u_n, u_nm1, u_nm2, f_n):
+        '''
+        Compute the residual of the PDE at time step n.
+        '''
+        # BUG: project into higher order functional space?
+        V = u_n.function_space()
+        mesh = V.mesh()
+        basis_degree = V.ufl_element().degree()
+        U = F.FunctionSpace(mesh, 'P', basis_degree + 3)
+
+        f_n_v = F.project(f_n, U).vector()[:]
+        u_nm1_v = F.project(u_nm1, U).vector()[:]
+        u_nm2_v = F.project(u_nm2, U).vector()[:]
+
+        u_n_ = F.project(u_n, U)
+        u_n_v = u_n_.vector()[:]
+        ddu_n_v = F.project(u_n_.dx(0).dx(0), U).vector()[:]
+
+        # or use the same order?
+        # f_n_ = F.project(f_n, V).vector()[:]
+        # u_n_ = F.project(u_n, V).vector()[:]
+        # u_nm1_ = F.project(u_nm1, V).vector()[:]
+        # u_nm2_ = F.project(u_nm2, V).vector()[:]
+        # ddu_n = F.project(u_n.dx(0).dx(0), V).vector()[:]
+
+        R = np.sum(u_n_v - (dt ** 2) * (c ** 2) * ddu_n_v - (dt ** 2) * f_n_v -
+                   2 * u_nm1_v + u_nm2_v)
+        return R
 
     # Create mesh
     mesh = UnitHyperCube(divisions)
@@ -113,31 +214,17 @@ def pde_solver(f, u_D, u_I, c,
         u_nm1 = F.interpolate(u_nm2, V)
 
     # Define expressions used in variational forms
-    DT = F.Constant(dt)  # NOTE: make a Constant
+    DT = F.Constant(dt)  # NOTE: make a Constant(Expression)
     C = F.Constant(c)
 
-    def _make_variational_problem(V):
-        '''
-        Parameters
-        ----------
-        V: FEniCS.FunctionSpace
-
-        Returns
-        -------
-        a, L: FEniCS.Expression
-            Variational forms.
-        '''
-        # Define trial and test functions
-        u = F.TrialFunction(V)
-        v = F.TestFunction(V)
-
-        # Define variational problem
-        a = F.dot(u, v) * F.dx +\
-            (DT ** 2) * (C ** 2) * F.dot(F.grad(u), F.grad(v)) * F.dx
-        L = ((DT ** 2) * f + 2 * u_nm1 - u_nm2) * v * F.dx
-        return a, L
-
+    # Define variational forms
     # a, L = _make_variational_problem(V)
+
+    # Or assemble linear systems
+    M, K, A = _assembly(V)
+
+    # Solve in time
+    u_ = F.Function(V)  # NOTE: solution at current t, not trial function
 
     # TODO: log
     # F.set_log_level(F.LogLevel.PROGRESS)  # PROGRESS = 16
@@ -150,43 +237,21 @@ def pde_solver(f, u_D, u_I, c,
     # Save mesh to file (for use in reaction_system.py)
     # F.File('vocal_tract_test/mesh.xml.gz') << mesh
 
-    def _assembly(V):
-        # Define trial and test functions
-        u = F.TrialFunction(V)
-        v = F.TestFunction(V)
-
-        # Assemble
-        a_M = F.dot(u, v) * F.dx
-        a_K = F.dot(F.grad(u), F.grad(v)) * F.dx
-
-        M = F.assemble(a_M)
-        K = F.assemble(a_K)
-
-        A = M + (DT ** 2) * (C ** 2) * K
-        return M, K, A
-
-    M, K, A = _assembly(V)
-
-    #
-    # Solve in time
-    u_ = F.Function(V)  # NOTE: solution at current t, not trial function
-
     t = 0
-    # TODO: Create progress bar?
-    # progress = F.Progress('Time-stepping')
-    # A = F.assemble(a)
     plt.figure()
-    for n in range(num_steps):
+    for n in tqdm(range(num_steps), desc='time stepping', leave=True):
 
         # Update current time
         t += dt
-        u_D.t = t  # NOTE: necessary if bc vary with time
-        # f.t = t  # NOTE: necessary if f vary with time
+        f.t = t  # NOTE: necessary if bc vary with time
+        u_D.t = t
+        u_e.t = t
 
         # Solve
         # F.solve(a == L, u_,  bcu)
 
         # or equivalently
+        # A = F.assemble(a)
         # b = F.assemble(L)
         # bcu.apply(A, b)
         # F.solve(A, u_.vector(), b)
@@ -212,23 +277,20 @@ def pde_solver(f, u_D, u_I, c,
         plt.ylabel('u')
 
         # Compute error at vertices
-        if g is not None:
-            # u_e = F.project(g, V)
-            u_e = F.interpolate(g, V)
-
-            error = np.abs(
-                np.array(u_e.vector()) - np.array(u_.vector())
-            ).max()
+        if u_e is not None:  # compute L2 error
+            error = error_function(u_e, u_, norm='L2')
             print('[{:.2f}/{:.2f}]  error = {:.3g}'.format(t, T, error))
 
+            u_e_ = F.interpolate(u_e, V)
+
             plt.subplot(122)
-            F.plot(u_e)
+            F.plot(u_e_)
             plt.xlabel('x')
             plt.ylabel('u_e')
 
-        else:
-            # TODO: define residual?
-            pass
+        else:  # compute residual
+            R = _residual(u_, u_nm1, u_nm2, f)
+            print('[{:.2f}/{:.2f}]  R = {:.3g}'.format(t, T, R))
 
         # Update previous solution
         u_nm2.assign(u_nm1)
@@ -237,7 +299,9 @@ def pde_solver(f, u_D, u_I, c,
     plt.show()
 
 
-def test_probelm_1():
+def toy_probelm_1():
+    # Define some constants
+    BASIS_DEGREE = 2  # degree of the basis functional space
 
     c = 1.  # speed of sound in medium
     alpha = 1.
@@ -251,17 +315,20 @@ def test_probelm_1():
     divisions = (64,)  # mesh size
 
     f = F.Expression('2*beta - 2*alpha*c*c',
-                     beta=beta, alpha=alpha, c=c, degree=2)
+                     alpha=alpha, beta=beta, c=c, degree=BASIS_DEGREE+2)
 
     # Boundary expression
-    uD_expr = 'alpha*x[0]*x[0] + beta*t*t + 1'  # NOTE: x is a vector
-    u_D = F.Expression(uD_expr,  # NOTE: at initial time t=0
-                       alpha=alpha, beta=beta, t=0, degree=2)
+    g_expr = 'alpha*x[0]*x[0] + beta*t*t + 1'  # NOTE: x is a vector
+    u_D = F.Expression(g_expr,  # NOTE: at initial time t=0
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
     # Initial expression
-    u_I = u_D
-    # u_I = F.Constant(0)
+    u_I = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
     # Exact solution
-    g = u_D
+    u_e = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+3)
 
     def boundary(x, on_boundary):
         '''
@@ -274,20 +341,68 @@ def test_probelm_1():
     pde_solver(f, u_D, u_I, c,
                boundary, divisions,
                T, dt, num_steps,
-               initial_method='project', degree=1, g=g)
+               initial_method='project', degree=BASIS_DEGREE, u_e=u_e)
+
+
+def toy_probelm_2():
+    # Define some constants
+    BASIS_DEGREE = 2  # degree of the basis functional space
+
+    c = 1.  # speed of sound in medium
+    alpha = 1.
+    beta = 5.
+
+    T = 2.0  # final time
+    num_steps = 500  # number of time steps
+    dt = T / num_steps  # time step size
+
+    length = 1.  # spatial dimension
+    divisions = (128,)  # mesh size
+
+    f = F.Expression('2*beta + 2*alpha*x[0]*x[0] - 2*alpha*c*c*t*t',
+                     alpha=alpha, beta=beta, c=c, t=0, degree=4)
+    # f = F.Expression('-2*alpha*c*c*t',
+                     # alpha=alpha, beta=beta, c=c, t=0, degree=BASIS_DEGREE+2)
+
+    # Boundary expression
+    g_expr = '(alpha*x[0]*x[0] + beta)*t*t'
+    # g_expr = '(alpha*x[0]*x[0] + beta)*t'
+    u_D = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
+    # Initial expression
+    # u_I = F.Constant(0.)
+    u_I = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
+    # Exact solution
+    u_e = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+3)
+
+    def boundary(x, on_boundary):
+        '''
+        Test if x is on boundary.
+        '''
+        tol = 1E-14
+        return on_boundary and ((F.near(x[0], 0., tol)) or
+                                (F.near(x[0], length, tol)))
+
+    pde_solver(f, u_D, u_I, c,
+               boundary, divisions,
+               T, dt, num_steps,
+               initial_method='project', degree=BASIS_DEGREE, u_e=u_e)
 
 
 def test_solver():
-    test_probelm_1()
+    toy_probelm_1()
+    toy_probelm_2()
 
-
-def run_solver():
-    pass
 
 #
 # Use SymPy to compute f from the manufactured solution u
 # x, t = sympy.symbols('x[0], x[1]')
 # u = 1 + alpha * (x ** 2) + beta * (t ** 2)
+
 # x_coord = np.linspace(0, length, 64 + 1)
 # t_coord = np.linspace(0, T, num_steps)
 # # xv, tv = np.meshgrid(x_coord, t_coord)
@@ -298,11 +413,10 @@ def run_solver():
 # for t in t_coord:
     # zv = list(map(z, x_coord, [t] * len(x_coord)))
     # plt.plot(x_coord, zv)
-
 # plt.xlim([0, 1])
 # plt.ylim([1, 2])
-
 # plt.show()
+
 # f = sympy.diff(sympy.diff(u, t), t) - (c ** 2) * sympy.diff(sympy.diff(u, x), x)
 # f = sympy.simplify(f)
 # u_0 = u.subs(x, 0)
@@ -320,4 +434,3 @@ def run_solver():
 
 if __name__ == '__main__':
     test_solver()
-    # run_solver()
