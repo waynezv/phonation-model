@@ -1,7 +1,18 @@
+"""
+FEniCS tutorial demo program: Incompressible Navier-Stokes equations
+for flow around a cylinder using the Incremental Pressure Correction
+Scheme (IPCS).
+
+  u' + u . nabla(u)) - div(sigma(u, p)) = f
+                                 div(u) = 0
+"""
+
 import numpy as np
+import sympy
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 import fenics as F
-import dolfin
+import mshr
 import pdb
 
 
@@ -58,8 +69,7 @@ def pde_solver(f, u_D, u_I, c,
                f_boundary, divisions,
                T, dt, num_steps,
                initial_method='project', degree=1,
-               u_e=None,
-               backward=False):
+               u_e=None):
     '''
     Solve
 
@@ -100,13 +110,9 @@ def pde_solver(f, u_D, u_I, c,
         Degree of the (Lagrange) polynomial element.
     u_e: FEniCS.Expression
         Exact solution.
-    backward: bool
-        Solve back in time or not.
 
     Returns
     -------
-    u_k: List[float], shape (num_steps,)
-        u(t) at the rightmost boundary.
     '''
     def _make_variational_problem(V):
         '''
@@ -191,7 +197,7 @@ def pde_solver(f, u_D, u_I, c,
         'Mismatch of the number of boundary expressions and boundary functions'
     bcs = []
     for ud, fb in zip(u_D, f_boundary):
-        bcs.append(F.DirichletBC(V, ud[0], fb))
+        bcs.append(F.DirichletBC(V, ud, fb))
 
     # Define initial conditions
     # define functions for solutions at previous and current time steps
@@ -235,27 +241,19 @@ def pde_solver(f, u_D, u_I, c,
     # Save mesh to file (for use in reaction_system.py)
     # F.File('vocal_tract_test/mesh.xml.gz') << mesh
 
-    u_L = []  # u(t) @ boundary L
-    x_L = mesh.coordinates()[-1]  # coordinates @ boundary L
     t = 0
     plt.figure()
-    for n in range(num_steps):
+    for n in tqdm(range(num_steps), desc='time stepping', leave=True):
 
         # Update current time
         t += dt
 
         # Update current terms
-        idx = int(round(t * 8000))  # BUG: t--sample idx correspondance
-        if idx == 0:
-            idx = 1
-        print(idx)
-
-        f.t_idx = idx
-
-        bcs = []
-        for ud, fb in zip(u_D, f_boundary):
-            ud.idx = idx
-            bcs.append(F.DirichletBC(V, ud[0], fb))
+        f.t = t
+        for ud in u_D:
+            ud.t = t
+        if u_e is not None:
+            u_e.t = t
 
         # Solve
         # F.solve(a == L, u_,  bcu)
@@ -267,7 +265,7 @@ def pde_solver(f, u_D, u_I, c,
         # F.solve(A, u_.vector(), b)
 
         # or
-        F_n = F.project(f[0], V).vector()
+        F_n = F.interpolate(f, V).vector()
         b = 2 * M * u_nm1.vector() - M * u_nm2.vector() + (DT ** 2) * M * F_n
         [bc.apply(A, b) for bc in bcs]
         F.solve(A, u_.vector(), b)
@@ -298,139 +296,148 @@ def pde_solver(f, u_D, u_I, c,
             plt.ylabel('u_e')
 
         else:  # compute residual
-            R = _residual(u_, u_nm1, u_nm2, f[0])
+            R = _residual(u_, u_nm1, u_nm2, f)
             print('[{:.2f}/{:.2f}]  R = {:.3g}'.format(t, T, R))
 
         # Update previous solution
         u_nm2.assign(u_nm1)
         u_nm1.assign(u_)
 
-        # Save boundary L value @ t
-        u_L.append(u_(x_L))
-
     plt.show()
-    return u_L
 
 
-def vocal_tract_solver(f_data, u0, uL,
-                       length, Nx, basis_degree,
-                       T, num_tsteps):
-    # f expression
-    f_cppcode = """
-    #include <iostream>
-    #include <cmath>
-    #include <pybind11/pybind11.h>
-    #include <pybind11/eigen.h>
-    #include <dolfin/function/Expression.h>
+def toy_probelm_1():
+    # Define some constants
+    BASIS_DEGREE = 2  # degree of the basis functional space
 
-    class FExpress: public dolfin::Expression {
-      public:
-        int t_idx;  // time index
-        double DX;  // length of uniformly spaced cell
-        Eigen::MatrixXd array;  // external data
+    c = 1.  # speed of sound in medium
+    alpha = 1.
+    beta = 5.
 
-        // Constructor
-        FExpress() : dolfin::Expression(1), t_idx(0) { }
+    T = 2.0  # final time
+    num_steps = 500  # number of time steps
+    dt = T / num_steps  # time step size
 
-        // Overload: evaluate at given point in given cell
-        void eval(Eigen::Ref<Eigen::VectorXd> values,
-                  Eigen::Ref<const Eigen::VectorXd> x) const {
-          // values: values at the point
-          // x: coordinates of the point
-          int x_idx = std::round(x(0) / DX);  // spatial index
-          values(0) = array(t_idx, x_idx);
-        }
-    };
+    length = 1.  # spatial dimension
+    divisions = (64,)  # mesh size
 
-    // Binding FExpress
-    PYBIND11_MODULE(SIGNATURE, m) {
-      pybind11::class_<FExpress, std::shared_ptr<FExpress>, dolfin::Expression>
-      (m, "FExpress")
-      .def(pybind11::init<>())
-      .def_readwrite("t_idx", &FExpress::t_idx)
-      .def_readwrite("DX", &FExpress::DX)
-      .def_readwrite("array", &FExpress::array)
-      ;
-    }
-    """
-    f_expr = dolfin.compile_cpp_code(f_cppcode).FExpress()
-    f = dolfin.CompiledExpression(f_expr, degree=basis_degree+2)
-    f.array = f_data
-    f.t_idx = 0
-    f.DX = 1. / (Nx * basis_degree)
+    f = F.Expression('2*beta - 2*alpha*c*c',
+                     alpha=alpha, beta=beta, c=c, degree=BASIS_DEGREE+2)
 
     # Boundary expression
-    g_cppcode = """
-    #include <pybind11/pybind11.h>
-    #include <pybind11/eigen.h>
-    #include <dolfin/function/Expression.h>
-
-    class GExpress: public dolfin::Expression {
-      public:
-        int idx;  // time-dependent index
-        Eigen::VectorXd array;  // external data
-
-        // Constructor
-        GExpress() : dolfin::Expression(1), idx(0) { }
-
-        // Overload: evaluate at given point in given cell
-        void eval(Eigen::Ref<Eigen::VectorXd> values,
-                  Eigen::Ref<const Eigen::VectorXd> x) const {
-          // values: values at the point
-          // x: coordinates of the point
-          values(0) = array(idx);
-        }
-    };
-
-    // Binding GExpress
-    PYBIND11_MODULE(SIGNATURE, m) {
-      pybind11::class_<GExpress, std::shared_ptr<GExpress>, dolfin::Expression>
-      (m, "GExpress")
-      .def(pybind11::init<>())
-      .def_readwrite("idx", &GExpress::idx)
-      .def_readwrite("array", &GExpress::array)
-      ;
-    }
-    """
-
-    g_expr = dolfin.compile_cpp_code(g_cppcode).GExpress()
-
-    u_D_0 = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
-    u_D_0.array = u0
-    u_D_0.idx = 0
-
-    u_D_L = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
-    u_D_L.array = uL
-    u_D_L.idx = 0
-
-    u_D = [u_D_0, u_D_L]
+    g_expr = 'alpha*x[0]*x[0] + beta*t*t + 1'  # NOTE: x is a vector
+    u_D = F.Expression(g_expr,  # NOTE: at initial time t=0
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
 
     # Initial expression
-    u_I = F.Constant(0.)
+    u_I = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
 
-    def boundary_0(x, on_boundary):
+    # Exact solution
+    u_e = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+3)
+
+    def boundary(x, on_boundary):
         '''
         Test if x is on boundary.
         '''
         tol = 1E-14
-        return on_boundary and (F.near(x[0], 0., tol))
+        return on_boundary and ((F.near(x[0], 0., tol)) or
+                                (F.near(x[0], length, tol)))
 
-    def boundary_L(x, on_boundary):
+    pde_solver(f, [u_D], u_I, c,
+               [boundary], divisions,
+               T, dt, num_steps,
+               initial_method='project', degree=BASIS_DEGREE, u_e=u_e)
+
+
+def toy_probelm_2():
+    # Define some constants
+    BASIS_DEGREE = 2  # degree of the basis functional space
+
+    c = 1.  # speed of sound in medium
+    alpha = 1.
+    beta = 5.
+
+    T = 2.0  # final time
+    num_steps = 500  # number of time steps
+    dt = T / num_steps  # time step size
+
+    length = 1.  # spatial dimension
+    divisions = (128,)  # mesh size
+
+    f = F.Expression('2*beta + 2*alpha*x[0]*x[0] - 2*alpha*c*c*t*t',
+                     alpha=alpha, beta=beta, c=c, t=0, degree=4)
+    # f = F.Expression('-2*alpha*c*c*t',
+                     # alpha=alpha, beta=beta, c=c, t=0, degree=BASIS_DEGREE+2)
+
+    # Boundary expression
+    g_expr = '(alpha*x[0]*x[0] + beta)*t*t'
+    # g_expr = '(alpha*x[0]*x[0] + beta)*t'
+    u_D = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
+    # Initial expression
+    # u_I = F.Constant(0.)
+    u_I = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+2)
+
+    # Exact solution
+    u_e = F.Expression(g_expr,
+                       alpha=alpha, beta=beta, t=0, degree=BASIS_DEGREE+3)
+
+    def boundary(x, on_boundary):
         '''
         Test if x is on boundary.
         '''
         tol = 1E-14
-        return on_boundary and (F.near(x[0], length, tol))
+        return on_boundary and ((F.near(x[0], 0., tol)) or
+                                (F.near(x[0], length, tol)))
 
-    bcs = [boundary_0, boundary_L]
+    pde_solver(f, [u_D], u_I, c,
+               [boundary], divisions,
+               T, dt, num_steps,
+               initial_method='project', degree=BASIS_DEGREE, u_e=u_e)
 
-    dt = T / num_tsteps  # time step size
-    u_k = pde_solver(f, u_D, u_I, 1,  # TODO: speed of sound?
-                     bcs, (Nx,),
-                     T, dt, num_tsteps,
-                     initial_method='project', degree=basis_degree)
-    return u_k
+
+def test_solver():
+    toy_probelm_1()
+    toy_probelm_2()
+
+
+#
+# Use SymPy to compute f from the manufactured solution u
+# x, t = sympy.symbols('x[0], x[1]')
+# u = 1 + alpha * (x ** 2) + beta * (t ** 2)
+
+# x_coord = np.linspace(0, length, 64 + 1)
+# t_coord = np.linspace(0, T, num_steps)
+# # xv, tv = np.meshgrid(x_coord, t_coord)
+# # z = 1 + alpha * (xv ** 2) + beta * (tv ** 2)
+# z = lambda x, t: 1 + alpha * (x ** 2) + beta * (t ** 2)
+# plt.figure()
+# # h = plt.contourf(x_coord, t_coord, z)
+# for t in t_coord:
+    # zv = list(map(z, x_coord, [t] * len(x_coord)))
+    # plt.plot(x_coord, zv)
+# plt.xlim([0, 1])
+# plt.ylim([1, 2])
+# plt.show()
+
+# f = sympy.diff(sympy.diff(u, t), t) - (c ** 2) * sympy.diff(sympy.diff(u, x), x)
+# f = sympy.simplify(f)
+# u_0 = u.subs(x, 0)
+# u_L = u.subs(x, length)
+
+# u_code = sympy.printing.ccode(u)
+# f_code = sympy.printing.ccode(f)
+# u0_code = sympy.printing.ccode(u_0)
+# uL_code = sympy.printing.ccode(u_L)
+# print('u =', u_code)
+# print('f =', f_code)
+# print('u_0 =', u0_code)
+# print('u_L =', uL_code)
 
 
 if __name__ == '__main__':
-    pass
+    test_solver()
