@@ -24,7 +24,7 @@ from vocal_fold_model_displacement import vdp_coupled, vdp_jacobian
 from adjoint_model_displacement import adjoint_model
 from ode_solver import ode_solver
 from dae_solver import dae_solver
-from fem_solver import vocal_tract_solver
+from fem_solver import vocal_tract_solver, vocal_tract_solver_backward
 
 # TODO: put constants into configure file
 if len(sys.argv) < 2:
@@ -75,6 +75,10 @@ d = 1.75  # length of vocal folds, cm
 M = 0.5  # mass, g/cm^2
 B = 100  # damping, dyne s/cm^3
 
+c_sound = 1.  # speed of sound
+tau_f = 1.  # parameter for Updating f
+gamma_f = 1.  # parameter for updating f
+
 R = 1e16  # residual TODO: use L2
 
 logger.info('Initial parameters: alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
@@ -82,6 +86,8 @@ logger.info('Initial parameters: alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}
 logger.info('-' * 110)
 
 # Define some constants
+np.random.seed(1749)
+
 Nx = 64  # number of uniformly spaced cells in mesh
 BASIS_DEGREE = 2  # degree of the basis functional space
 length = 1.  # spatial dimension  TODO: physical domain
@@ -94,10 +100,8 @@ num_tsteps = 500
 T = 1.
 dt = T / num_tsteps  # time step size
 print('Total time: {:.4f}s  Stepsize: {:.4g}s'.format(T, dt))
-# f_data = np.zeros((num_tsteps, num_dof))  # BUG: random init?
-f_data = np.random.rand(num_tsteps, num_dof)  # (t, x)
-ft_data = np.random.rand(num_dof)  # f @ t
-
+f_data = np.zeros((num_tsteps, num_dof))  # BUG: random init?
+# f_data = np.random.rand(num_tsteps, num_dof)  # (t, x)
 
 # TODO: stop criterion tolerance, early stop
 while np.linalg.norm(R) > 1:  # norm of the difference between predicted and real glottal flow
@@ -161,25 +165,25 @@ while np.linalg.norm(R) > 1:  # norm of the difference between predicted and rea
     u0 = c * d * np.sum(X, axis=1)  # volume velocity flow, cm^3/s
     u0 = u0 / np.linalg.norm(u0)  # normalize
 
-    u_k = vocal_tract_solver(f_data, u0, samples,
-                             length, Nx, BASIS_DEGREE,
-                             T, num_tsteps)
+    u_k_L, U_k = vocal_tract_solver(f_data, u0, samples, c_sound,
+                                    length, Nx, BASIS_DEGREE,
+                                    T, num_tsteps)
     # Step 3: calculating difference signal
     logger.info('Calculating difference signal')
-    pdb.set_trace()
-    r_k = samples - np.array(u_k)
+    r_k = samples[:num_tsteps] - u_k_L
 
     # 4
     logger.info('Solving backward vocal tract model')
-    u_k = vocal_tract_solver(f_data, r_k, samples,
-                             length, Nx, BASIS_DEGREE,
-                             T, num_tsteps)
-
+    Z_k = vocal_tract_solver_backward(f_data, r_k, c_sound,
+                                      length, Nx, BASIS_DEGREE,
+                                      T, num_tsteps)
     # 5
     logger.info('Updating f^k')
+    f_data = f_data + (tau_f / gamma_f) * (Z_k[::-1, ...] / (c_sound ** 2) + U_k)
 
     # 6
     logger.info('Solving adjoint model')
+    pdb.set_trace()
 
     # Solve adjoint model
     residual, jac = adjoint_model(alpha, beta, delta, X, dX, R, fs)
