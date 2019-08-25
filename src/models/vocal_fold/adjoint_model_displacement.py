@@ -23,7 +23,8 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
     dX: List[fliat]
         Vocal fold velocity [dx_r, dx_l].
     R: List[float]
-        Difference between predicted and real volume velocity flows.
+        Extra term c.r.t. the difference between
+        predicted and real volume velocity flows.
     fs: int
         Sample rate.
 
@@ -54,10 +55,13 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         res: np.array[float], shape (len(M),)
             Residual vector.
         '''
-        # BUG: t--sample idx correspondance
         idx = int(round(t * fs))  # t(s) --> idx(#sample)
-        if idx == 0:
-            idx = 1
+        if idx < 0:
+            idx = 0
+        if idx > len(X) - 1:
+            idx = len(X) - 1
+        print('adjoint idx: ', idx)
+
         x = X[idx - 1]
         dx = dX[idx - 1]
         r = R[idx - 1]
@@ -94,9 +98,12 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         jacobian: np.array[float], shape (len(M), len(M))
             Jacobian matrix.
         '''
-        idx = int(round(t * fs))
-        if idx == 0:
-            idx = 1
+        idx = int(round(t * fs))  # t(s) --> idx(#sample)
+        if idx < 0:
+            idx = 0
+        if idx > len(X) - 1:
+            idx = len(X) - 1
+
         x = X[idx - 1]
         dx = dX[idx - 1]
 

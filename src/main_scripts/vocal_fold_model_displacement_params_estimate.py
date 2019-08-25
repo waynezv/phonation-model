@@ -144,7 +144,7 @@ while np.linalg.norm(R) > 1:  # norm of the difference between predicted and rea
 
     X = sol[:, [1, 3]]  # vocal fold displacement (right, left), cm
     dX = sol[:, [2, 4]]  # cm/s
-    u0 = c * d * np.sum(X, axis=1)  # volume velocity flow, cm^3/s
+    u0 = c * d * (np.sum(X, axis=1) + 2 * x0)  # volume velocity flow, cm^3/s
     u0 = u0 / np.linalg.norm(u0)  # normalize
     R = u0 - glottal_flow
 
@@ -186,16 +186,14 @@ while np.linalg.norm(R) > 1:  # norm of the difference between predicted and rea
     adjoint_sol = dae_solver(residual, M_T, dM_T, T,
                              solver='IDA', algvar=[0, 1, 0, 1], suppress_alg=True, atol=1e-6, rtol=1e-6,
                              usejac=True, jac=jac, usesens=False,
-                             backward=True, tfinal=0., ncp=len(samples),  # simulate (T --> 0)s backwards
+                             backward=True, tfinal=0., ncp=(len(samples)-1),  # simulate (T --> 0)s backwards
                              display_progress=True, report_continuously=False, verbosity=50)  # NOTE: report_continuously should be False
 
     # Update parameters
     L = adjoint_sol[1][:, 0][::-1]  # reverse time 0 --> T
     E = adjoint_sol[1][:, 2][::-1]
-
-    # BUG: length +1
-    L = L[:-1]
-    E = E[:-1]
+    assert (len(L) == len(samples)) and (len(E) == len(samples)),\
+        "Size mismatch"
 
     d_alpha = -np.dot((dX[:, 0] + dX[:, 1]), (L + E))
     d_beta = np.sum(L * (1 + np.square(X[:, 0])) * dX[:, 0] + E * (1 + np.square(X[:, 1])) * dX[:, 1])

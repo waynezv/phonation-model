@@ -138,9 +138,9 @@ def pde_solver(f, u_D, u_I, c,
 
     Returns
     -------
-    u_L: np.array[float], shape (num_steps,)
+    uL: np.array[float], shape (num_steps,)
         u(t) at the rightmost boundary.
-    U_K: np.array[float], shape (num_steps, Nx)
+    U: np.array[float], shape (num_steps, Nx)
         u(x, t) velocity field.
     '''
     def _make_variational_problem(V):
@@ -241,9 +241,9 @@ def pde_solver(f, u_D, u_I, c,
     # Save mesh to file (for use in reaction_system.py)
     # F.File('vocal_tract_test/mesh.xml.gz') << mesh
 
-    U_K = []  # u(x, t) @ domain for outer iteration K
-    u_L = []  # u(t) @ boundary L
-    x_L = mesh.coordinates()[-1]  # coordinates @ boundary L
+    U = []  # u(x, t) @ domain for outer iteration K
+    uL = []  # u(t) @ boundary L
+    xL = mesh.coordinates()[-1]  # coordinates @ boundary L
     t = dt
     fig = plt.figure()
     for n in range(num_steps):
@@ -317,27 +317,27 @@ def pde_solver(f, u_D, u_I, c,
         u_nm1.assign(u_)
 
         # Save boundary L value @ t
-        u_L.append(u_(x_L))
-        U_K.append(F.interpolate(u_, V).vector()[:])
+        uL.append(u_(xL))
+        U.append(F.interpolate(u_, V).vector()[:])
 
-    u_L = np.array(u_L)
-    U_K = np.array(U_K)
+    uL = np.array(uL)
+    U = np.array(U)
 
     ax = fig.add_subplot(111, projection='3d')
 
     X = np.linspace(mesh.coordinates().min(), mesh.coordinates().max(),
-                    U_K.shape[1])
-    T = np.linspace(0, T, U_K.shape[0])
+                    U.shape[1])
+    T = np.linspace(0, T, U.shape[0])
     XX, TT = np.meshgrid(X, T)
 
-    surf = ax.plot_surface(XX, TT, U_K, cmap='coolwarm')
+    surf = ax.plot_surface(XX, TT, U, cmap='coolwarm')
     ax.set_xlabel('x')
     ax.set_ylabel('t')
     ax.set_zlabel('u')
 
     # plt.show()
     # plt.savefig('')
-    return u_L, U_K
+    return uL, U
 
 
 def pde_solver_backward(f, boundary_conditions, u_I, c,
@@ -386,7 +386,7 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
 
     Returns
     -------
-    U_K: np.array[float], shape (num_steps, Nx)
+    U: np.array[float], shape (num_steps, Nx)
         u(x, t) velocity field.
     '''
     def _make_variational_problem(V):
@@ -499,7 +499,7 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
     # Save mesh to file (for use in reaction_system.py)
     # F.File('vocal_tract_test/mesh.xml.gz') << mesh
 
-    U_K = []  # u(x, t) @ domain for outer iteration K
+    U = []  # u(x, t) @ domain for outer iteration K
     t = T - dt
     fig = plt.figure()
     for n in range(num_steps):
@@ -573,25 +573,24 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
         u_nm1.assign(u_)
 
         # Save boundary L value @ t
-        U_K.append(F.interpolate(u_, V).vector()[:])
+        U.append(F.interpolate(u_, V).vector()[:])
 
-    # plt.show()
-    U_K = np.array(U_K)
+    U = np.array(U)
 
     ax = fig.add_subplot(111, projection='3d')
 
     X = np.linspace(mesh.coordinates().min(), mesh.coordinates().max(),
-                    U_K.shape[1])
-    T = np.linspace(0, T, U_K.shape[0])
+                    U.shape[1])
+    T = np.linspace(0, T, U.shape[0])
     XX, TT = np.meshgrid(X, T)
 
-    surf = ax.plot_surface(XX, TT, U_K[::-1, ...], cmap='coolwarm')
+    surf = ax.plot_surface(XX, TT, U[::-1, ...], cmap='coolwarm')
     ax.set_xlabel('x')
     ax.set_ylabel('t')
     ax.set_zlabel('z')
 
     plt.show()
-    return U_K
+    return U
 
 
 def vocal_tract_solver(f_data, u0, uL, c_sound,
@@ -707,11 +706,11 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
 
     # Solve
     dt = T / num_tsteps  # time step size
-    u_k_L, u_k = pde_solver(f, u_D, u_I, c_sound,
-                            bcs, (Nx,),
-                            T, dt, num_tsteps,
-                            initial_method='project', degree=basis_degree)
-    return u_k_L, u_k
+    uL_k, U_k = pde_solver(f, u_D, u_I, c_sound,
+                           bcs, (Nx,),
+                           T, dt, num_tsteps,
+                           initial_method='project', degree=basis_degree)
+    return uL_k, U_k
 
 
 def vocal_tract_solver_backward(f_data, g_data, c_sound,
@@ -813,10 +812,10 @@ def vocal_tract_solver_backward(f_data, g_data, c_sound,
                            'subboundary': subboundary_L}
     divisions = (Nx,)
     dt = T / num_tsteps  # time step size
-    u_k = pde_solver_backward(f, boundary_conditions, u_I, c_sound,
+    U_k = pde_solver_backward(f, boundary_conditions, u_I, c_sound,
                               divisions, T, dt, num_tsteps,
                               initial_method='project', degree=basis_degree)
-    return u_k
+    return U_k
 
 
 if __name__ == '__main__':

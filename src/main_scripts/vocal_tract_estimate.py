@@ -79,8 +79,8 @@ c_sound = 1.  # speed of sound
 tau_f = 1.  # parameter for Updating f
 gamma_f = 1.  # parameter for updating f
 
-R = 1e16  # residual TODO: use L2
 
+R = 1e16  # prediction residual w.r.t L2 norm
 logger.info('Initial parameters: alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
             format(alpha, beta, delta))
 logger.info('-' * 110)
@@ -94,17 +94,17 @@ length = 1.  # spatial dimension  TODO: physical domain
 divisions = (Nx,)  # mesh size
 num_dof = Nx * BASIS_DEGREE + 1  # degree of freedom
 
-# num_tsteps = len(samples)  # number of time steps
-# T = len(samples) / float(fs)  # total time, s
-num_tsteps = 500
-T = 1.
+num_tsteps = len(samples)  # number of time steps
+T = len(samples) / float(fs)  # total time, s
+# num_tsteps = 500
+# T = 1.
 dt = T / num_tsteps  # time step size
 print('Total time: {:.4f}s  Stepsize: {:.4g}s'.format(T, dt))
 f_data = np.zeros((num_tsteps, num_dof))  # BUG: random init?
 # f_data = np.random.rand(num_tsteps, num_dof)  # (t, x)
 
 # TODO: stop criterion tolerance, early stop
-while np.linalg.norm(R) > 1:  # norm of the difference between predicted and real glottal flow
+while R > 0.5:
 
     # Step 1: solve vocal fold displacement model
     logger.info('Solving vocal fold displacement model')
@@ -162,52 +162,58 @@ while np.linalg.norm(R) > 1:  # norm of the difference between predicted and rea
 
     X = sol[:, [1, 3]]  # vocal fold displacement (right, left), cm
     dX = sol[:, [2, 4]]  # cm/s
-    u0 = c * d * np.sum(X, axis=1)  # volume velocity flow, cm^3/s
+    u0 = c * d * (np.sum(X, axis=1) + 2 * x0)  # volume velocity flow, cm^3/s
     u0 = u0 / np.linalg.norm(u0)  # normalize
+    u0 = u0[:num_tsteps]
+    samples = samples[:num_tsteps]
 
-    u_k_L, U_k = vocal_tract_solver(f_data, u0, samples, c_sound,
-                                    length, Nx, BASIS_DEGREE,
-                                    T, num_tsteps)
-    # Step 3: calculating difference signal
+    uL_k, U_k = vocal_tract_solver(f_data, u0, samples, c_sound,
+                                   length, Nx, BASIS_DEGREE,
+                                   T, num_tsteps)
+
+    # Step 3: calculate difference signal  # BUG: should be ~nil by boundary condition, remove right bc?
     logger.info('Calculating difference signal')
-    r_k = samples[:num_tsteps] - u_k_L
+    r_k = samples[:num_tsteps] - uL_k
 
-    # 4
+    # Step 4: solve backward vocal tract model
     logger.info('Solving backward vocal tract model')
     Z_k = vocal_tract_solver_backward(f_data, r_k, c_sound,
                                       length, Nx, BASIS_DEGREE,
                                       T, num_tsteps)
-    # 5
+    # Step 5: update f
     logger.info('Updating f^k')
-    f_data = f_data + (tau_f / gamma_f) * (Z_k[::-1, ...] / (c_sound ** 2) + U_k)
+    f_data = f_data + (tau_f / gamma_f) *\
+        (Z_k[::-1, ...] / (c_sound ** 2) + U_k)
 
-    # 6
+    # Step 6: solve adjoint model
     logger.info('Solving adjoint model')
-    pdb.set_trace()
 
-    # Solve adjoint model
-    residual, jac = adjoint_model(alpha, beta, delta, X, dX, R, fs)
+    dHf_u0 = uL_k / (u0 + 1E-14)  # derivative of operator Hf w.r.t. u0
+    R_diff = 2 * c * d * (-r_k) * dHf_u0  # term c.r.t. difference signal
+
+    residual, jac = adjoint_model(alpha, beta, delta, X, dX, R_diff,
+                                  num_tsteps/T)
+
     M_T = [0., 0., 0., 0.]  # initial states of the adjoint model at T
-    dM_T = [0., -R[-1], 0., -R[-1]]  # initial ddL = ddE = -R(T)
+    dM_T = [0., -R_diff[-1], 0., -R_diff[-1]]  # initial ddL = ddE = -R_diff(T)
     # dM_T = [0., 0.01, 0., 0.01]  # BUG: inconsistent initial conditions?
-    T = len(samples) / float(fs)
+    # T = len(samples) / float(fs)
+
     adjoint_sol = dae_solver(residual, M_T, dM_T, T,
                              solver='IDA', algvar=[0, 1, 0, 1], suppress_alg=True, atol=1e-6, rtol=1e-6,
                              usejac=True, jac=jac, usesens=False,
-                             backward=True, tfinal=0., ncp=len(samples),  # simulate (T --> 0)s backwards
+                             backward=True, tfinal=0., ncp=(len(samples)-1),  # simulate (T --> 0)s backwards
                              display_progress=True, report_continuously=False, verbosity=50)  # NOTE: report_continuously should be False
 
-    # 7
+    # Step 7: update vocal fold model parameters
     logger.info('Updating parameters')
 
-    # Update parameters
     L = adjoint_sol[1][:, 0][::-1]  # reverse time 0 --> T
     E = adjoint_sol[1][:, 2][::-1]
+    assert (len(L) == num_tsteps) and (len(E) == num_tsteps), "Size mismatch"
 
-    # BUG: length +1
-    L = L[:-1]
-    E = E[:-1]
-
+    pdb.set_trace()
+    # TODO: plot uL_k v.s. samples
     d_alpha = -np.dot((dX[:, 0] + dX[:, 1]), (L + E))
     d_beta = np.sum(L * (1 + np.square(X[:, 0])) * dX[:, 0] + E * (1 + np.square(X[:, 1])) * dX[:, 1])
     d_delta = np.sum(0.5 * (X[:, 1] * E - X[:, 0] * L))
@@ -217,8 +223,9 @@ while np.linalg.norm(R) > 1:  # norm of the difference between predicted and rea
     # beta = beta - 0.1 * d_beta
     delta = delta - 0.1 * d_delta
 
-    logger.info('norm(R) = {:.4f} | alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
-                format(np.linalg.norm(R), alpha, beta, delta))
+    R = np.sqrt(np.sum(r_k ** 2))
+    logger.info('L2 Residual = {:.4f} | alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
+                format(R, alpha, beta, delta))
     logger.info('-' * 110)
 
 # Results
