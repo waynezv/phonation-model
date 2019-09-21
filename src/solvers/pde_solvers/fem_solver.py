@@ -91,7 +91,8 @@ def pde_solver(f, u_D, u_I, c,
                T, dt, num_steps,
                initial_method='project', degree=1,
                u_e=None,
-               backward=False):
+               backward=False,
+               iteration=0):
     '''
     Solve
 
@@ -257,7 +258,7 @@ def pde_solver(f, u_D, u_I, c,
             idx = 0
         if idx > num_steps - 1:
             idx = num_steps - 1
-        print(idx)
+        print('t idx: ', idx)
 
         f.t_idx = idx
 
@@ -310,7 +311,7 @@ def pde_solver(f, u_D, u_I, c,
 
         else:  # compute residual
             R = residual(u_, u_nm1, u_nm2, f[0], dt, c)
-            print('[{:.2f}/{:.2f}]  R = {:.3g}'.format(t, T, R))
+            print('[{:.2f}/{:.2f}]  PDE Residual = {:.3g}'.format(t, T, R))
 
         # Update previous solution
         u_nm2.assign(u_nm1)
@@ -330,20 +331,22 @@ def pde_solver(f, u_D, u_I, c,
     T = np.linspace(0, T, U.shape[0])
     XX, TT = np.meshgrid(X, T)
 
-    surf = ax.plot_surface(XX, TT, U, cmap='coolwarm')
+    ax.plot_surface(XX, TT, U, cmap='coolwarm')
     ax.set_xlabel('x')
     ax.set_ylabel('t')
     ax.set_zlabel('u')
 
+    plt.tight_layout()
     # plt.show()
-    # plt.savefig('')
+    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_u_iter{}.png'.format(iteration))
     return uL, U
 
 
 def pde_solver_backward(f, boundary_conditions, u_I, c,
                         divisions, T, dt, num_steps,
                         initial_method='project', degree=1,
-                        u_e=None):
+                        u_e=None,
+                        iteration=0):
     '''
     Solve
 
@@ -513,7 +516,7 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
             idx = 0
         if idx > num_steps - 1:
             idx = num_steps - 1
-        print(idx)
+        print('t idx: ', idx)
 
         f.t_idx = idx
 
@@ -566,7 +569,7 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
 
         else:  # compute residual
             R = residual(u_, u_nm1, u_nm2, f[0], dt, c)
-            print('[{:.2f}/{:.2f}]  R = {:.3g}'.format(t, T, R))
+            print('[{:.2f}/{:.2f}]  PDE Residual = {:.3g}'.format(t, T, R))
 
         # Update previous solution
         u_nm2.assign(u_nm1)
@@ -584,18 +587,20 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
     T = np.linspace(0, T, U.shape[0])
     XX, TT = np.meshgrid(X, T)
 
-    surf = ax.plot_surface(XX, TT, U[::-1, ...], cmap='coolwarm')
+    ax.plot_surface(XX, TT, U[::-1, ...], cmap='coolwarm')
     ax.set_xlabel('x')
     ax.set_ylabel('t')
     ax.set_zlabel('z')
 
-    plt.show()
+    plt.tight_layout()
+    # plt.show()
+    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_z_iter{}.png'.format(iteration))
     return U
 
 
 def vocal_tract_solver(f_data, u0, uL, c_sound,
                        length, Nx, basis_degree,
-                       T, num_tsteps):
+                       T, num_tsteps, iteration):
     # f expression
     f_cppcode = """
     #include <iostream>
@@ -638,7 +643,7 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
     f = dolfin.CompiledExpression(f_expr, degree=basis_degree+2)
     f.array = f_data
     f.t_idx = 0
-    f.DX = 1. / (Nx * basis_degree)
+    f.DX = length / (Nx * basis_degree)
 
     # Initial expression
     u_I = F.Constant(0.)
@@ -682,11 +687,12 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
     u_D_0.array = u0
     u_D_0.idx = 0
 
-    u_D_L = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
-    u_D_L.array = uL
-    u_D_L.idx = 0
+    # u_D_L = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
+    # u_D_L.array = uL
+    # u_D_L.idx = 0
 
-    u_D = [u_D_0, u_D_L]
+    # u_D = [u_D_0, u_D_L]
+    u_D = [u_D_0]
 
     def boundary_0(x, on_boundary):
         '''
@@ -702,20 +708,22 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
         tol = 1E-14
         return on_boundary and (F.near(x[0], length, tol))
 
-    bcs = [boundary_0, boundary_L]
+    # f_boundary = [boundary_0, boundary_L]
+    f_boundary = [boundary_0]
 
     # Solve
     dt = T / num_tsteps  # time step size
     uL_k, U_k = pde_solver(f, u_D, u_I, c_sound,
-                           bcs, (Nx,),
+                           f_boundary, (Nx,),
                            T, dt, num_tsteps,
-                           initial_method='project', degree=basis_degree)
+                           initial_method='project', degree=basis_degree,
+                           iteration=iteration)
     return uL_k, U_k
 
 
 def vocal_tract_solver_backward(f_data, g_data, c_sound,
                                 length, Nx, basis_degree,
-                                T, num_tsteps):
+                                T, num_tsteps, iteration):
     '''
     TODO
     '''
@@ -814,7 +822,8 @@ def vocal_tract_solver_backward(f_data, g_data, c_sound,
     dt = T / num_tsteps  # time step size
     U_k = pde_solver_backward(f, boundary_conditions, u_I, c_sound,
                               divisions, T, dt, num_tsteps,
-                              initial_method='project', degree=basis_degree)
+                              initial_method='project', degree=basis_degree,
+                              iteration=iteration)
     return U_k
 
 
