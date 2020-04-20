@@ -73,10 +73,10 @@ logging.config.dictConfig(args['log'])  # setup logger
 logger = logging.getLogger('main')
 
 # Data
-# wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Normal/001.8k.wav'
+wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Normal/001.8k.wav'
 # wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Pathological/Neoplasm/001.8k.wav'
 # wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Pathological/Phonotrauma/001.8k.wav'
-wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Pathological/Vocal_palsy/001.8k.wav'
+# wav_file = '../../data/FEMH_Data/processed/resample_8k/Training_Dataset/Pathological/Vocal_palsy/001.8k.wav'
 samples, fs = pcm16_to_float(wav_file)
 assert fs == 8000, "{}: incompatible sample rate"\
     "--need 8000 but got {}".format(wav_file, fs)
@@ -87,9 +87,9 @@ assert fs == 8000, "{}: incompatible sample rate"\
 
 # TODO: trim
 # samples = samples[int(4 * fs): int(6 * fs)]  # for normal, neoplasm, phonotrauma
-samples = samples[int(1 * fs): int(3 * fs)]  # for vocal_palsy
+# samples = samples[int(1 * fs): int(3 * fs)]  # for vocal_palsy
+samples = samples[int(4 * fs): int(4 * fs) + 100]
 
-# samples = (samples - samples.min()) / (samples.max() - samples.min())
 samples = samples / np.linalg.norm(samples)  # normalize
 
 # Initial conditions
@@ -97,12 +97,12 @@ alpha = 0.8  # if > 0.5 delta, stable-like oscillator
 beta = 0.32
 delta = 1.  # asymmetry parameter
 
-# alpha = 0.85
-# beta = 0.65
-# delta = 1.
+# alpha = 0.4
+# beta = 0.32
+# delta = 1.6
 
 vdp_init_t = 0.
-vdp_init_state = [0., 0.1, 0., 0.1]  # (xl, dxl, xr, dxr), xl=xr=0
+vdp_init_state = [0., 0.1, 0., 0.1]  # (xr, dxr, xl, dxl), xl=xr=0
 
 # Some constants
 x0 = 0.1  # half glottal width at rest position, cm
@@ -117,10 +117,9 @@ c_sound = 34000.  # speed of sound, cm/s
 tau_f = 1.  # parameter for Updating f
 gamma_f = 1.  # parameter for updating f
 
-
 R = 1e16  # prediction residual w.r.t L2 norm
-logger.info('Initial parameters: alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
-            format(alpha, beta, delta))
+logger.info('Initial parameters: alpha = {:.4f}   beta = {:.4f}   '
+            'delta = {:.4f}'.format(alpha, beta, delta))
 logger.info('-' * 110)
 
 # Define some constants
@@ -138,7 +137,6 @@ dt = T / num_tsteps  # time step size
 print('Total time: {:.4f}s  Stepsize: {:.4g}s'.format(T, dt))
 f_data = np.zeros((num_tsteps, num_dof))  # init f
 
-samples = samples[:num_tsteps]
 iteration = 0
 while R > 0.1:
 
@@ -153,8 +151,9 @@ while R > 0.1:
     time_scaling = np.sqrt(K / float(M))  # t -> s
     x_scaling = np.sqrt(eta)
 
-    logger.debug('stiffness K = {:.4f} dyne/cm^3    subglottal Ps = {:.4f} dyne/cm^2    '
-                 'time_scaling = {:.4f}'.format(K, Ps, time_scaling))
+    logger.debug('stiffness K = {:.4f} dyne/cm^3    subglottal Ps = {:.4f} '
+                 'dyne/cm^2    time_scaling = {:.4f}'.
+                 format(K, Ps, time_scaling))
 
     # Solve vocal fold displacement model
     sol = ode_solver(vdp_coupled, vdp_jacobian, vdp_params,
@@ -210,7 +209,7 @@ while R > 0.1:
                                    length, Nx, BASIS_DEGREE,
                                    T, num_tsteps, iteration)
 
-    # Step 3: calculate difference signal  # BUG: should be ~nil by boundary condition, remove right bc?
+    # Step 3: calculate difference signal
     logger.info('Calculating difference signal')
     uL_k = uL_k / np.linalg.norm(uL_k)  # normalize
     r_k = samples - uL_k
@@ -223,7 +222,7 @@ while R > 0.1:
     plt.legend(['samples', 'uL_k'])
     plt.tight_layout()
     # plt.show()
-    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_uL_iter{}.png'.format(iteration))
+    # plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_uL_iter{}.png'.format(iteration))
 
     # Step 4: solve backward vocal tract model
     logger.info('Solving backward vocal tract model')
@@ -248,7 +247,7 @@ while R > 0.1:
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_f_iter{}.png'.format(iteration))
+    # plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_f_iter{}.png'.format(iteration))
 
     # Step 6: solve adjoint model
     logger.info('Solving adjoint model')
@@ -281,7 +280,7 @@ while R > 0.1:
     d_beta = np.sum(L * (1 + np.square(X[:num_tsteps, 0])) * dX[:num_tsteps, 0] + E * (1 + np.square(X[:num_tsteps, 1])) * dX[:num_tsteps, 1])
     d_delta = np.sum(0.5 * (X[:num_tsteps, 1] * E - X[:num_tsteps, 0] * L))
 
-    # TODO: stepsize, adaptive adjust stepsize
+    # Adaptive stepsize
     # stepsize = 0.1
     stepsize = 0.01 / np.max([d_alpha, d_beta, d_delta])
     alpha = alpha - stepsize * d_alpha
@@ -290,12 +289,13 @@ while R > 0.1:
 
     R = np.sqrt(np.sum(r_k ** 2))
 
-    logger.info('L2 Residual = {:.4f} | alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}'.
-                format(R, alpha, beta, delta))
+    logger.info('L2 Residual = {:.4f} | alpha = {:.4f}   beta = {:.4f}   '
+                'delta = {:.4f}'.format(R, alpha, beta, delta))
     logger.info('-' * 110)
+    pdb.set_trace()
 
 # Results
 logger.info('*' * 110)
 
-logger.info('alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}  norm(R) = {:.4f}'.
-            format(alpha, beta, delta, np.linalg.norm(R)))
+logger.info('alpha = {:.4f}   beta = {:.4f}   delta = {:.4f}  '
+            'L2 Residual = {:.4f}'.format(alpha, beta, delta, R))

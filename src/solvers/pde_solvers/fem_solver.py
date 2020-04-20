@@ -338,7 +338,7 @@ def pde_solver(f, u_D, u_I, c,
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_u_iter{}.png'.format(iteration))
+    # plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_u_iter{}.png'.format(iteration))
     return uL, U
 
 
@@ -594,7 +594,7 @@ def pde_solver_backward(f, boundary_conditions, u_I, c,
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_z_iter{}.png'.format(iteration))
+    # plt.savefig('/home/wzhao/ProJEX/phonation-model/src/main_scripts/outputs/vocal_tract_estimate/plots_run_0920_4/vocal_tract_estimate_z_iter{}.png'.format(iteration))
     return U
 
 
@@ -687,9 +687,9 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
     u_D_0.array = u0
     u_D_0.idx = 0
 
-    # u_D_L = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
-    # u_D_L.array = uL
-    # u_D_L.idx = 0
+    u_D_L = dolfin.CompiledExpression(g_expr, degree=basis_degree+2)
+    u_D_L.array = uL
+    u_D_L.idx = 0
 
     # u_D = [u_D_0, u_D_L]
     u_D = [u_D_0]
@@ -708,7 +708,7 @@ def vocal_tract_solver(f_data, u0, uL, c_sound,
         tol = 1E-14
         return on_boundary and (F.near(x[0], length, tol))
 
-    # f_boundary = [boundary_0, boundary_L]
+    f_boundary = [boundary_0, boundary_L]
     f_boundary = [boundary_0]
 
     # Solve

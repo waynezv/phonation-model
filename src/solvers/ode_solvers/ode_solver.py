@@ -19,6 +19,7 @@ def ode_solver(model, model_jacobian, model_params, init_state, init_t,
     init_state: initial model state, List[float]
     init_t: initial simulation time, float
     solver: ODE solver, string
+        Options: vode, dopri5, dop853, lsoda; depends on stiffness and precision.
     ixpr: whether to generate extra printing at method switches, int
     dt: time step increment, float
     tmax: maximum simulation time, float
@@ -44,6 +45,3 @@ def ode_solver(model, model_jacobian, model_params, init_state, init_t,
         sol.append([r.t, *list(r.y)])
 
     return np.array(sol)  # (t, [p, dp]) tangent bundle
-
-
-# TODO: a faster version

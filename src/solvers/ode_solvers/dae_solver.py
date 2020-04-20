@@ -9,7 +9,7 @@ import pdb
 def dae_solver(residual, y0, yd0, t0,
                p0=None, jac=None, name='DAE',
                solver='IDA', algvar=None, atol=1e-6, backward=False,
-               display_progress=True, pbar=None, report_continuously=True,
+               display_progress=True, pbar=None, report_continuously=False,
                rtol=1e-6, sensmethod='STAGGERED', suppress_alg=False,
                suppress_sens=False, usejac=False, usesens=False, verbosity=30,
                tfinal=10., ncp=500):
@@ -105,7 +105,9 @@ def dae_solver(residual, y0, yd0, t0,
         sim.suppress_sens = suppress_sens
 
     # Simulation
-    t, y, yd = sim.simulate(tfinal, ncp)
+    # t, y, yd = sim.simulate(tfinal, ncp=(ncp - 1))
+    ncp_list = np.linspace(t0, tfinal, num=ncp, endpoint=True)
+    t, y, yd = sim.simulate(tfinal, ncp=0, ncp_list=ncp_list)
 
     # Plot
     # sim.plot()
@@ -123,7 +125,40 @@ def dae_solver(residual, y0, yd0, t0,
     # plt.subplot(224)
     # plt.plot(t, y[:, 3], 'm.-')
     # plt.legend([r'$\dot{\eta}$'])
-    # plt.show()
+
+    # plt.figure()
+    # plt.subplot(221)
+    # plt.plot(t, yd[:, 0], 'b.-')
+    # plt.legend([r'$\dot{\lambda}$'])
+    # plt.subplot(222)
+    # plt.plot(t, yd[:, 1], 'r.-')
+    # plt.legend([r'$\ddot{\lambda}$'])
+    # plt.subplot(223)
+    # plt.plot(t, yd[:, 2], 'k.-')
+    # plt.legend([r'$\dot{\eta}$'])
+    # plt.subplot(224)
+    # plt.plot(t, yd[:, 3], 'm.-')
+    # plt.legend([r'$\ddot{\eta}$'])
+
+    # plt.figure()
+    # plt.subplot(121)
+    # plt.plot(y[:, 0], y[:, 1])
+    # plt.xlabel(r'$\lambda$')
+    # plt.ylabel(r'$\dot{\lambda}$')
+    # plt.subplot(122)
+    # plt.plot(y[:, 2], y[:, 3])
+    # plt.xlabel(r'$\eta$')
+    # plt.ylabel(r'$\dot{\eta}$')
+
+    # plt.figure()
+    # plt.subplot(121)
+    # plt.plot(yd[:, 0], yd[:, 1])
+    # plt.xlabel(r'$\dot{\lambda}$')
+    # plt.ylabel(r'$\ddot{\lambda}$')
+    # plt.subplot(122)
+    # plt.plot(yd[:, 2], yd[:, 3])
+    # plt.xlabel(r'$\dot{\eta}$')
+    # plt.ylabel(r'$\ddot{\eta}$')
 
     # plt.figure()
     # plt.subplot(121)
@@ -134,6 +169,17 @@ def dae_solver(residual, y0, yd0, t0,
     # plt.plot(y[:, 1], y[:, 3])
     # plt.xlabel(r'$\dot{\lambda}$')
     # plt.ylabel(r'$\dot{\eta}$')
+
+    # plt.figure()
+    # plt.subplot(121)
+    # plt.plot(yd[:, 0], yd[:, 2])
+    # plt.xlabel(r'$\dot{\lambda}$')
+    # plt.ylabel(r'$\dot{\eta}$')
+    # plt.subplot(122)
+    # plt.plot(yd[:, 1], yd[:, 3])
+    # plt.xlabel(r'$\ddot{\lambda}$')
+    # plt.ylabel(r'$\ddot{\eta}$')
+
     # plt.show()
 
     sol = [t, y, yd]

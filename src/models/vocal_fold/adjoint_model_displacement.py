@@ -4,7 +4,7 @@ import numpy as np
 import pdb
 
 
-def adjoint_model(alpha, beta, delta, X, dX, R, fs):
+def adjoint_model(alpha, beta, delta, X, dX, R, fs, t0, tf):
     '''
     Adjoint model for the 1-d vocal fold oscillation model.
     Used to solve derivatives of left/right vocal fold displacements
@@ -27,6 +27,10 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         predicted and real volume velocity flows.
     fs: int
         Sample rate.
+    t0: float
+        Start time.
+    tf: float
+        Stop time.
 
     Returns
     -------
@@ -55,16 +59,17 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         res: np.array[float], shape (len(M),)
             Residual vector.
         '''
-        idx = int(round(t * fs))  # t(s) --> idx(#sample)
+        # Convert t to [0, T]
+        t = t - t0
+        # Convert t(s) --> idx(#sample)
+        idx = int(round(t * fs) - 1)
         if idx < 0:
             idx = 0
-        if idx > len(X) - 1:
-            idx = len(X) - 1
-        print('adjoint idx: ', idx)
+        # print(f't: {t:.4f}    adjoint idx: {idx:d}')
 
-        x = X[idx - 1]
-        dx = dX[idx - 1]
-        r = R[idx - 1]
+        x = X[idx]
+        dx = dX[idx]
+        r = R[idx]
 
         res_1 = dM[1] + (2 * beta * x[0] * dx[0] + 1 - 0.5 * delta) * M[0] + r
 
@@ -98,14 +103,16 @@ def adjoint_model(alpha, beta, delta, X, dX, R, fs):
         jacobian: np.array[float], shape (len(M), len(M))
             Jacobian matrix.
         '''
-        idx = int(round(t * fs))  # t(s) --> idx(#sample)
+        # Convert t to [0, T]
+        T = tf - t0
+        t = (t - t0) / (tf - t0) * T
+        # Convert t(s) --> idx(#sample)
+        idx = int(round(t * fs) - 1)
         if idx < 0:
             idx = 0
-        if idx > len(X) - 1:
-            idx = len(X) - 1
 
-        x = X[idx - 1]
-        dx = dX[idx - 1]
+        x = X[idx]
+        dx = dX[idx]
 
         jacobian = np.zeros((len(M), len(M)))
 

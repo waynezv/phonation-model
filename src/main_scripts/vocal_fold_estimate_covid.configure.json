@@ -2,8 +2,8 @@
     "_comment": "==============================",
     "_comment": "Log",
     "verbose": false,
-    "log_dir": "./outputs/vocal_tract_estimate/logs/",
-    "log_file": "run_0922_x",
+    "log_dir": "./outputs/vocal_fold_estimate_covid/logs/",
+    "log_file": "run_0420_7",
 
     "log": {
         "version": 1,
@@ -28,7 +28,7 @@
                 "class": "logging.handlers.RotatingFileHandler",
                 "level": "DEBUG",
                 "formatter": "custom",
-                "filename": "./outputs/vocal_tract_estimate/logs/run_0922_x",
+                "filename": "./outputs/vocal_fold_estimate_covid/logs/run_0420_7",
                 "maxBytes": 10485760,
                 "backupCount": 20,
                 "encoding": "utf8"
